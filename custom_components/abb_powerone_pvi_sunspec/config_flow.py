@@ -33,7 +33,7 @@ def host_valid(host):
 def abb_powerone_pvi_sunspec_entries(hass: HomeAssistant):
     """Return the hosts already configured"""
     return set(
-        entry.data.get(CONF_HOST) for entry in hass.config_entries.async_entries(DOMAIN)
+        config_entry.data.get(CONF_HOST) for config_entry in hass.config_entries.async_entries(DOMAIN)
     )
 
 

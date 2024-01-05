@@ -77,21 +77,6 @@ class ABBPowerOnePVISunSpecHub:
         return is_open
 
 
-    def close(self):
-        """Disconnect client"""
-        try:
-            if self._client.is_socket_open():
-                _LOGGER.debug("Closing Modbus TCP connection")
-                with self._lock:
-                    self._client.close()
-                    return True
-            else:
-                _LOGGER.debug("Modbus TCP connection already closed")
-        except ConnectionException as connect_error:
-            _LOGGER.debug(f"Close Connection connect_error: {connect_error}")
-            raise ConnectionError() from connect_error
-
-
     def connect(self):
         """Connect client"""
         _LOGGER.debug(
@@ -118,6 +103,21 @@ class ABBPowerOnePVISunSpecHub:
             raise ConnectionError(
                 f"Inverter not active on {self._host}:{self._port}"
             )
+
+
+    def disconnect(self):
+        """Disconnect client"""
+        try:
+            if self._client.is_socket_open():
+                _LOGGER.debug("Closing Modbus TCP connection")
+                with self._lock:
+                    self._client.close()
+                    return True
+            else:
+                _LOGGER.debug("Modbus TCP connection already closed")
+        except ConnectionException as connect_error:
+            _LOGGER.debug(f"Close Connection connect_error: {connect_error}")
+            raise ConnectionError() from connect_error
 
 
     def read_holding_registers(self, slave, address, count):
@@ -182,10 +182,14 @@ class ABBPowerOnePVISunSpecHub:
         try:
             if self.connect():
                 _LOGGER.debug("Start Get data (Slave ID: %s - Base Address: %s)", self._slave_id, self._base_addr)
+                # # async code to test:
+                # await self._hass.async_add_executor_job(self.read_sunspec_modbus_model_1())
+                # await self._hass.async_add_executor_job(self.read_sunspec_modbus_model_101_103())
+                # await self._hass.async_add_executor_job(self.read_sunspec_modbus_model_160())
                 self.read_sunspec_modbus_model_1()
                 self.read_sunspec_modbus_model_101_103()
                 self.read_sunspec_modbus_model_160()
-                self.close()
+                self.disconnect()
                 _LOGGER.debug("End Get data")
                 return True
             else:

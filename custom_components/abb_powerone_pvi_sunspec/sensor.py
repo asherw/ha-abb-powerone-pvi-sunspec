@@ -5,20 +5,19 @@ from typing import Any, Dict, Optional
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import (DOMAIN, INVERTER_TYPE,
-                    SENSOR_TYPES_COMMON,
-                    SENSOR_TYPES_SINGLE_PHASE,
-                    SENSOR_TYPES_THREE_PHASE,
-                    SENSOR_TYPES_SINGLE_MPPT,
-                    SENSOR_TYPES_DUAL_MPPT)
+from .__init__ import HubDataUpdateCoordinator
+from .const import (CONF_NAME, DOMAIN, INVERTER_TYPE, SENSOR_TYPES_COMMON,
+                    SENSOR_TYPES_DUAL_MPPT, SENSOR_TYPES_SINGLE_MPPT,
+                    SENSOR_TYPES_SINGLE_PHASE, SENSOR_TYPES_THREE_PHASE)
 from .entity import ABBPowerOnePVISunSpecEntity
 
 _LOGGER: logging.Logger = logging.getLogger(__package__)
 
-def add_sensor_defs(coordinator, entry, sensors, definitions):
+
+def add_sensor_defs(coordinator, config_entry, sensors, definitions):
     for sensor_info in definitions.values():
         sensor_data = {
                 "name": sensor_info[0],
@@ -28,14 +27,14 @@ def add_sensor_defs(coordinator, entry, sensors, definitions):
                 "device_class": sensor_info[4],
                 "state_class": sensor_info[5],
             }
-        sensors.append(ABBPowerOnePVISunSpecSensor(coordinator, entry, sensor_data))
+        sensors.append(ABBPowerOnePVISunSpecSensor(coordinator, config_entry, sensor_data))
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_devices):
+async def async_setup_entry(hass: HomeAssistant, config_entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     """Setup sensor platform"""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    hub = coordinator.api
+    hub = hass.data[DOMAIN][config_entry.entry_id]
+    coordinator = HubDataUpdateCoordinator(hass, hub=hub, config_entry=config_entry)
     sensors = []
-    _LOGGER.debug("(sensor) Name: %s", entry.data.get(CONF_NAME))
+    _LOGGER.debug("(sensor) Name: %s", config_entry.data.get(CONF_NAME))
     _LOGGER.debug("(sensor) Manufacturer: %s", hub.data["comm_manufact"])
     _LOGGER.debug("(sensor) Model: %s", hub.data["comm_model"])
     _LOGGER.debug("(sensor) SW Version: %s", hub.data["comm_version"])
@@ -43,20 +42,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_d
     _LOGGER.debug("(sensor) MPPT #: %s", hub.data["mppt_nr"])
     _LOGGER.debug("(sensor) Serial#: %s", hub.data["comm_sernum"])
 
-    add_sensor_defs(coordinator, entry, sensors, SENSOR_TYPES_COMMON);
+    add_sensor_defs(coordinator, config_entry, sensors, SENSOR_TYPES_COMMON);
 
     if hub.data["invtype"] == INVERTER_TYPE[101]:
-        add_sensor_defs(coordinator, entry, sensors, SENSOR_TYPES_SINGLE_PHASE);
+        add_sensor_defs(coordinator, config_entry, sensors, SENSOR_TYPES_SINGLE_PHASE);
     elif hub.data["invtype"] == INVERTER_TYPE[103]:
-        add_sensor_defs(coordinator, entry, sensors, SENSOR_TYPES_THREE_PHASE)
+        add_sensor_defs(coordinator, config_entry, sensors, SENSOR_TYPES_THREE_PHASE)
 
     _LOGGER.debug("(sensor) DC Voltages : single=%d dc1=%d dc2=%d", hub.data["dcvolt"], hub.data["dc1volt"], hub.data["dc2volt"])
     if hub.data["mppt_nr"] == 1:
-        add_sensor_defs(coordinator, entry, sensors, SENSOR_TYPES_SINGLE_MPPT)
+        add_sensor_defs(coordinator, config_entry, sensors, SENSOR_TYPES_SINGLE_MPPT)
     else:
-        add_sensor_defs(coordinator, entry, sensors, SENSOR_TYPES_DUAL_MPPT)
+        add_sensor_defs(coordinator, config_entry, sensors, SENSOR_TYPES_DUAL_MPPT)
 
-    async_add_devices(sensors)
+    # Fetch initial data so we have data when entities subscribe
+    #
+    # If the refresh fails, async_config_entry_first_refresh() will
+    # raise ConfigEntryNotReady and setup will try again later
+    #
+    # If you do not want to retry setup on failure, use
+    # coordinator.async_refresh() instead
+    #
+    # ref.: https://developers.home-assistant.io/docs/integration_setup_failures
+    # ref.: https://developers.home-assistant.io/docs/integration_fetching_data
+    await coordinator.async_config_entry_first_refresh()
+
+    async_add_entities(sensors)
 
     return True
 
@@ -68,7 +79,7 @@ class ABBPowerOnePVISunSpecSensor(ABBPowerOnePVISunSpecEntity, SensorEntity):
         super().__init__(
             coordinator, config_entry, sensor_data
         )
-        self._hub = coordinator.api
+        self._hub = coordinator.hub
         self._device_name = config_entry.data.get(CONF_NAME)
         self._name = sensor_data["name"]
         self._key = sensor_data["key"]
@@ -122,3 +133,12 @@ class ABBPowerOnePVISunSpecSensor(ABBPowerOnePVISunSpecEntity, SensorEntity):
     def should_poll(self) -> bool:
         """Data is delivered by the hub"""
         return False
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+        # get last value of the sensor before updating HA state machine
+        if self._key in self._hub.data:
+            self._attr_native_value = self._hub.data[self._key]
+        # async callback that will write the state to HA state machine
+        self.async_write_ha_state()

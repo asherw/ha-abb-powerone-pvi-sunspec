@@ -1,9 +1,8 @@
 """Entity Class of ABB Power-One PVI SunSpec"""
 
-from homeassistant.const import CONF_NAME
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_NAME, DOMAIN
 
 
 class ABBPowerOnePVISunSpecEntity(CoordinatorEntity):
@@ -11,7 +10,7 @@ class ABBPowerOnePVISunSpecEntity(CoordinatorEntity):
     def __init__(self, coordinator, config_entry, sensor_data):
         super().__init__(coordinator)
         self._coordinator = coordinator
-        self._hub = coordinator.api
+        self._hub = coordinator.hub
         self._config_entry = config_entry
         self._sensor_data = sensor_data
         self._device_name = self._config_entry.data.get(CONF_NAME)
